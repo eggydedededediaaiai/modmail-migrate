@@ -1,6 +1,6 @@
 """
 Avionico Modmail Migration Plugin
-Install: .plugins add avionicodev/modmail-migrate@main
+Install: .plugins add eggydedededediaaiai/modmail-migrate@main
 Usage:   .migrate <token>
 
 Get your token from the Avionico dashboard: Bot Settings -> Data Migration -> Migration Plugin.
