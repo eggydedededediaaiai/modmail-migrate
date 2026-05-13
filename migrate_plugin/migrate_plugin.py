@@ -12,26 +12,31 @@ from discord.ext import commands
 BASE_URL = "https://modmailapi.avioni.co"
 PUSH_URL = f"{BASE_URL}/api/migrate/push"
 DONE_URL = f"{BASE_URL}/api/migrate/done"
-COLLECTIONS = ["logs", "config", "plugins", "snippets", "aliases", "blocked"]
 BATCH_SIZE = 500
 
+# Never push these - they contain credentials or are MongoDB internals
+SKIP_COLLECTIONS = {
+    "system.indexes", "system.users", "system.profile",
+    "system.js", "system.views",
+}
+
+# Fields stripped from config - only things tied to the old bot's identity
 STRIP_KEYS = {
-    "token", "bot_token", "mongo_uri", "mongo_db", "database_uri",
-    "database_type", "bot_id", "_id",
+    "token", "bot_token", "mongo_uri", "mongo_db",
+    "database_uri", "database_type", "bot_id", "_id",
 }
 
 
 def sanitize(collection: str, doc: dict) -> dict:
     out = {}
     for k, v in doc.items():
-        if k in STRIP_KEYS:
+        if k == "_id":
             continue
         if collection == "config":
+            if k in STRIP_KEYS:
+                continue
             low = k.lower()
             if "mongo" in low or "database_uri" in low:
-                continue
-        else:
-            if k == "_id":
                 continue
         out[k] = v
     return out
@@ -53,13 +58,32 @@ class MigratePlugin(commands.Cog):
             )
             return
 
-        msg = await ctx.send("Starting migration, please wait...")
+        msg = await ctx.send("Scanning collections...")
         db = self.bot.db
+
+        # Discover all collections dynamically
+        try:
+            all_collections = await db.list_collection_names()
+        except Exception as e:
+            await msg.edit(content=f"Failed to list collections: {e}")
+            return
+
+        collections_to_push = [
+            c for c in all_collections
+            if c not in SKIP_COLLECTIONS and not c.startswith("system.")
+        ]
+
+        if not collections_to_push:
+            await msg.edit(content="No collections found to migrate.")
+            return
+
+        await msg.edit(content=f"Found {len(collections_to_push)} collections. Migrating...")
+
         total = 0
         errors = []
 
         async with aiohttp.ClientSession() as session:
-            for col_name in COLLECTIONS:
+            for col_name in collections_to_push:
                 try:
                     collection = db[col_name]
                     raw_docs = await collection.find({}).to_list(length=None)
@@ -86,12 +110,13 @@ class MigratePlugin(commands.Cog):
                                 await msg.edit(content="Token is invalid or expired. Generate a new one from the avionico Modmail dashboard.")
                                 return
                             else:
-                                errors.append(f"{col_name}: server error {resp.status}")
+                                text = await resp.text()
+                                errors.append(f"{col_name}: {resp.status} {text[:80]}")
                                 break
                 except Exception as e:
-                    errors.append(f"{col_name}: {type(e).__name__}")
+                    errors.append(f"{col_name}: {type(e).__name__}: {e}")
 
-            # Signal migration complete — this restarts the bot to load new config
+            # Signal done - restarts bot to load new config
             try:
                 async with session.post(
                     DONE_URL,
@@ -102,15 +127,20 @@ class MigratePlugin(commands.Cog):
             except Exception:
                 restarted = False
 
+        restart_note = (
+            " Your bot has been restarted and will load the new config shortly."
+            if restarted else
+            " Restart the bot from the avionico Modmail dashboard to apply the new config."
+        )
+
         if errors:
             err_lines = "\n".join(errors)
             await msg.edit(
-                content=f"Migration finished with some issues. {total} documents pushed.\n```\n{err_lines}\n```"
+                content=f"Migration finished with some issues. {total} documents pushed.\n```\n{err_lines}\n```{restart_note}"
             )
         else:
-            restart_note = " The bot has been restarted to apply the new config." if restarted else " Restart the bot from the avionico Modmail dashboard to apply the new config."
             await msg.edit(
-                content=f"Done. {total} documents pushed to avionico Modmail successfully.{restart_note}"
+                content=f"Done. {total} documents pushed to avionico Modmail across {len(collections_to_push)} collections.{restart_note}"
             )
 
 
