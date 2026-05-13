@@ -49,7 +49,7 @@ class Migrate(commands.Cog):
             await ctx.send(
                 "**Avionico Migration**\n"
                 "Usage: `.migrate <token>`\n"
-                "Get your token from the Avionico dashboard -> Bot Settings -> Data Migration -> Migration Plugin."
+                "Get your token from the avionico dashboard -> Bot Settings -> Data Migration -> Migration Plugin."
             )
             return
 
@@ -79,7 +79,7 @@ class Migrate(commands.Cog):
                             if resp.status == 200:
                                 total += len(batch)
                             elif resp.status == 401:
-                                await msg.edit(content="Token is invalid or expired. Generate a new one from the Avionico dashboard.")
+                                await msg.edit(content="Token is invalid or expired. Generate a new one from the avionico dashboard.")
                                 return
                             else:
                                 text = await resp.text()
@@ -92,7 +92,7 @@ class Migrate(commands.Cog):
             err_lines = "\n".join(errors)
             await msg.edit(content=f"Migration finished with some issues. {total} documents pushed.\n```\n{err_lines}\n```")
         else:
-            await msg.edit(content=f"Done. {total} documents pushed to Avionico successfully.")
+            await msg.edit(content=f"Done. {total} documents pushed to avionico successfully.")
 
 
 async def setup(bot):
